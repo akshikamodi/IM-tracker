@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IM Pipeline Tracker</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a12;
+    --surface: #12121e;
+    --surface2: #1a1a2e;
+    --surface3: #22223a;
+    --border: rgba(255,255,255,0.07);
+    --border-hover: rgba(255,255,255,0.15);
+    --text: #f0f0f8;
+    --text-muted: #888899;
+    --text-dim: #555566;
+
+    --onboard: #7c6ff7;
+    --onboard-glow: rgba(124,111,247,0.25);
+    --script: #22d3a5;
+    --script-glow: rgba(34,211,165,0.25);
+    --posted: #f7a24e;
+    --posted-glow: rgba(247,162,78,0.25);
+
+    --ai: #a78bfa;
+    --ai-bg: rgba(167,139,250,0.12);
+    --tsat: #34d399;
+    --tsat-bg: rgba(52,211,153,0.12);
+    --offline: #fb923c;
+    --offline-bg: rgba(251,146,60,0.12);
+    --other: #94a3b8;
+    --other-bg: rgba(148,163,184,0.12);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Ambient background */
+  body::before {
+    content: '';
+    position: fixed;
+    top: -200px; left: -200px;
+    width: 700px; height: 700px;
+    background: radial-gradient(circle, rgba(124,111,247,0.06) 0%, transparent 70%);
+    pointer-events: none; z-index: 0;
+  }
+  body::after {
+    content: '';
+    position: fixed;
+    bottom: -200px; right: -200px;
+    width: 600px; height: 600px;
+    background: radial-gradient(circle, rgba(34,211,165,0.05) 0%, transparent 70%);
+    pointer-events: none; z-index: 0;
+  }
+
+  .app {
+    position: relative;
+    z-index: 1;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 28px 24px 48px;
+  }
+
+  /* ── Header ── */
+  .header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .header-left h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, #f0f0f8 0%, #a78bfa 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .header-left .subtitle {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 4px;
+    font-weight: 300;
+  }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .date-chip {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: 'DM Sans', sans-serif;
+  }
+  .target-chip {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 12px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .target-chip span { color: var(--posted); font-weight: 600; }
+
+  /* ── Stats Grid ── */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+    animation: fadeUp .5s ease both;
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .stat {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 16px 18px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color .2s, transform .2s;
+  }
+  .stat:hover { border-color: var(--border-hover); transform: translateY(-2px); }
+  .stat::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--accent, var(--onboard));
+    opacity: .6;
+  }
+  .stat-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    font-weight: 500;
+  }
+  .stat-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--accent, var(--text));
+    line-height: 1;
+  }
+  .stat-sub {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+
+  /* ── Pace Bar ── */
+  .pace-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+    animation: fadeUp .5s .1s ease both;
+  }
+  .pace-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .pace-head span:first-child {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+  }
+  .pace-pct {
+    font-family: 'Syne', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--script);
+  }
+  .pace-track {
+    height: 6px;
+    background: var(--surface3);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .pace-fill {
+    height: 100%;
+    border-radius: 6px;
+    background: linear-gradient(90deg, var(--onboard), var(--script));
+    transition: width .6s cubic-bezier(.4,0,.2,1);
+    position: relative;
+  }
+  .pace-fill::after {
+    content: '';
+    position: absolute;
+    top: 0; right: 0;
+    width: 20px; height: 100%;
+    background: rgba(255,255,255,.3);
+    filter: blur(4px);
+  }
+
+  /* ── Camp Filter ── */
+  .filter-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+    animation: fadeUp .5s .15s ease both;
+  }
+  .filt {
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all .2s;
+    font-family: 'DM Sans', sans-serif;
+  }
+  .filt:hover { border-color: var(--border-hover); color: var(--text); }
+  .filt.active { background: rgba(124,111,247,.15); border-color: var(--onboard); color: var(--onboard); }
+  .filt.f-ai.active    { background: var(--ai-bg); border-color: var(--ai); color: var(--ai); }
+  .filt.f-tsat.active  { background: var(--tsat-bg); border-color: var(--tsat); color: var(--tsat); }
+  .filt.f-offline.active { background: var(--offline-bg); border-color: var(--offline); color: var(--offline); }
+  .filt.f-other.active { background: var(--other-bg); border-color: var(--other); color: var(--other); }
+
+  /* ── Columns ── */
+  .board {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    animation: fadeUp .5s .2s ease both;
+  }
+  @media (max-width: 900px) { .board { grid-template-columns: 1fr; } }
+  @media (min-width: 901px) and (max-width: 1100px) { .board { grid-template-columns: repeat(2, 1fr); } }
+
+  .col {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    display: flex;
+    flex-direction: column;
+    min-height: 480px;
+    transition: border-color .2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .col::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: var(--col-color, var(--onboard));
+    opacity: .7;
+  }
+  .col-glow {
+    position: absolute;
+    top: -40px; left: 50%;
+    transform: translateX(-50%);
+    width: 200px; height: 100px;
+    background: var(--col-glow, var(--onboard-glow));
+    border-radius: 50%;
+    filter: blur(30px);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .col-head {
+    padding: 18px 18px 14px;
+    position: relative;
+    z-index: 1;
+  }
+  .col-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .col-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--col-color, var(--text));
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .col-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--col-color, var(--onboard));
+    box-shadow: 0 0 8px var(--col-color, var(--onboard));
+  }
+  .col-badge {
+    font-family: 'Syne', sans-serif;
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--col-color, var(--text));
+    opacity: .9;
+    line-height: 1;
+  }
+  .col-desc {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 4px;
+    font-weight: 300;
+  }
+
+  .drop-zone {
+    flex: 1;
+    padding: 0 12px 8px;
+    min-height: 80px;
+    position: relative;
+    z-index: 1;
+    transition: background .2s;
+  }
+  .drop-zone.drag-over {
+    background: rgba(255,255,255,.03);
+    border-radius: 12px;
+  }
+  .drop-zone.drag-over::after {
+    content: 'Drop here';
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 12px;
+    color: var(--text-dim);
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .empty-hint {
+    text-align: center;
+    padding: 24px 12px;
+    font-size: 12px;
+    color: var(--text-dim);
+    font-weight: 300;
+    font-style: italic;
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 13px 14px;
+    margin-bottom: 10px;
+    cursor: grab;
+    user-select: none;
+    transition: border-color .15s, transform .15s, box-shadow .15s;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--camp-color, #444);
+    border-radius: 3px 0 0 3px;
+  }
+  .card:hover {
+    border-color: var(--border-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,.3);
+  }
+  .card:active { cursor: grabbing; transform: scale(.98); }
+  .card.dragging { opacity: .35; transform: scale(.97); }
+  .card-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 8px;
+    padding-left: 6px;
+  }
+  .card-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding-left: 6px;
+  }
+  .badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: opacity .15s;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  .badge:hover { opacity: .75; }
+  .b-ai_camp    { background: var(--ai-bg); color: var(--ai); border: 1px solid rgba(167,139,250,.25); }
+  .b-tsat       { background: var(--tsat-bg); color: var(--tsat); border: 1px solid rgba(52,211,153,.25); }
+  .b-offline    { background: var(--offline-bg); color: var(--offline); border: 1px solid rgba(251,146,60,.25); }
+  .b-other      { background: var(--other-bg); color: var(--other); border: 1px solid rgba(148,163,184,.25); }
+  .card-ts {
+    font-size: 10px;
+    color: var(--text-dim);
+    font-weight: 300;
+  }
+
+  /* ── Add Area ── */
+  .add-area {
+    padding: 10px 12px 14px;
+    border-top: 1px solid var(--border);
+    position: relative;
+    z-index: 1;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .add-input {
+    flex: 1;
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-family: 'DM Sans', sans-serif;
+    color: var(--text);
+    outline: none;
+    transition: border-color .2s;
+  }
+  .add-input::placeholder { color: var(--text-dim); }
+  .add-input:focus { border-color: var(--col-color, var(--onboard)); }
+  .add-btn {
+    width: 32px; height: 32px;
+    border-radius: 10px;
+    background: var(--col-color, var(--onboard));
+    border: none;
+    color: #fff;
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity .15s, transform .15s;
+    flex-shrink: 0;
+    line-height: 1;
+    padding-bottom: 1px;
+  }
+  .add-btn:hover { opacity: .85; transform: scale(1.05); }
+
+  /* ── Modal ── */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.65);
+    backdrop-filter: blur(6px);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn .15s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+  .modal {
+    background: var(--surface2);
+    border: 1px solid var(--border-hover);
+    border-radius: 20px;
+    padding: 28px;
+    width: 340px;
+    max-width: 95vw;
+    animation: slideUp .2s cubic-bezier(.4,0,.2,1);
+    position: relative;
+  }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(20px) } to { opacity: 1; transform: translateY(0) } }
+  .modal-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 20px;
+  }
+  .modal-field { margin-bottom: 16px; }
+  .modal-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+  .modal input[type=text],
+  .modal select {
+    width: 100%;
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 14px;
+    font-family: 'DM Sans', sans-serif;
+    color: var(--text);
+    outline: none;
+    transition: border-color .2s;
+    appearance: none;
+  }
+  .modal input[type=text]:focus,
+  .modal select:focus { border-color: var(--onboard); }
+  .modal select option { background: var(--surface2); }
+  .modal-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 8px;
+    justify-content: flex-end;
+  }
+  .btn-cancel {
+    padding: 9px 20px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 13px;
+    font-family: 'DM Sans', sans-serif;
+    cursor: pointer;
+    transition: border-color .2s, color .2s;
+  }
+  .btn-cancel:hover { border-color: var(--border-hover); color: var(--text); }
+  .btn-confirm {
+    padding: 9px 24px;
+    border-radius: 10px;
+    border: none;
+    background: linear-gradient(135deg, var(--onboard), #9b6cf7);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: 'DM Sans', sans-serif;
+    cursor: pointer;
+    transition: opacity .15s, transform .15s;
+    box-shadow: 0 4px 16px rgba(124,111,247,.3);
+  }
+  .btn-confirm:hover { opacity: .9; transform: translateY(-1px); }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%) translateY(0);
+    background: var(--surface2);
+    border: 1px solid var(--border-hover);
+    border-radius: 12px;
+    padding: 10px 20px;
+    font-size: 13px;
+    color: var(--text);
+    z-index: 500;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.4);
+    animation: toastIn .3s cubic-bezier(.4,0,.2,1);
+    white-space: nowrap;
+  }
+  @keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(12px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+  .toast-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--script); }
+
+  /* Camp select visual */
+  .camp-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .camp-opt {
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: 'DM Sans', sans-serif;
+    transition: all .15s;
+    text-align: center;
+    background: transparent;
+    color: var(--text-muted);
+  }
+  .camp-opt:hover { border-color: var(--border-hover); color: var(--text); }
+  .camp-opt.selected-ai       { background: var(--ai-bg); border-color: var(--ai); color: var(--ai); }
+  .camp-opt.selected-tsat     { background: var(--tsat-bg); border-color: var(--tsat); color: var(--tsat); }
+  .camp-opt.selected-offline  { background: var(--offline-bg); border-color: var(--offline); color: var(--offline); }
+  .camp-opt.selected-other    { background: var(--other-bg); border-color: var(--other); color: var(--other); }
+
+  /* Delete btn */
+  .card-del {
+    position: absolute;
+    top: 8px; right: 8px;
+    width: 20px; height: 20px;
+    border-radius: 6px;
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity .15s, background .15s;
+    line-height: 1;
+  }
+  .card:hover .card-del { opacity: 1; }
+  .card-del:hover { background: rgba(255,80,80,.15); color: #ff6060; }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="header">
+    <div class="header-left">
+      <h1>IM Pipeline Tracker</h1>
+      <div class="subtitle">Influence marketing · drag, drop & track</div>
+    </div>
+    <div class="header-right">
+      <div class="date-chip" id="date-chip">—</div>
+      <div class="target-chip">Daily target: <span id="target-val">3</span> posts</div>
+    </div>
+  </div>
+
+  <div class="stats-grid" id="stats-grid"></div>
+
+  <div class="pace-section">
+    <div class="pace-head">
+      <span>Daily posting pace</span>
+      <span class="pace-pct" id="pace-pct">0%</span>
+    </div>
+    <div class="pace-track">
+      <div class="pace-fill" id="pace-fill" style="width:0%"></div>
+    </div>
+  </div>
+
+  <div class="filter-row" id="filter-row"></div>
+
+  <div class="board" id="board"></div>
+</div>
+
+<div id="modal-root"></div>
+<div id="toast-root"></div>
+
+<script>
+const STAGES = [
+  { id: 'onboarded', label: 'Onboarded', desc: 'Influencers confirmed & ready', color: '#7c6ff7', glow: 'rgba(124,111,247,0.25)' },
+  { id: 'scripting', label: 'Scripting',  desc: 'Content being created',         color: '#22d3a5', glow: 'rgba(34,211,165,0.25)'  },
+  { id: 'posted',   label: 'Posted',     desc: 'Live & published',               color: '#f7a24e', glow: 'rgba(247,162,78,0.25)'  },
+];
+
+const CAMPS = [
+  { id: 'ai_camp',  label: 'AI Camp',       cls: 'b-ai_camp',  color: '#a78bfa' },
+  { id: 'tsat',     label: 'TSAT',          cls: 'b-tsat',     color: '#34d399' },
+  { id: 'offline',  label: 'Offline Event', cls: 'b-offline',  color: '#fb923c' },
+  { id: 'other',    label: 'Other',         cls: 'b-other',    color: '#94a3b8' },
+];
+
+const DAILY_TARGET = 3;
+
+let state = {
+  cards: JSON.parse(localStorage.getItem('im_cards') || '[]'),
+  nextId: parseInt(localStorage.getItem('im_nextId') || '1'),
+  filter: 'all',
+  dragId: null,
+};
+
+function save() {
+  localStorage.setItem('im_cards', JSON.stringify(state.cards));
+  localStorage.setItem('im_nextId', String(state.nextId));
+}
+
+function todayStr() {
+  return new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+}
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+function fmtTs(ts) {
+  if (!ts) return '';
+  return new Date(ts).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true });
+}
+
+function postedToday() {
+  const dk = todayKey();
+  return state.cards.filter(c => {
+    if (c.stage !== 'posted' || !c.stageTs) return false;
+    const d = new Date(c.stageTs);
+    return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` === dk;
+  }).length;
+}
+
+function campCount(id) { return state.cards.filter(c => c.camp === id).length; }
+function stageCount(id) { return state.cards.filter(c => c.stage === id).length; }
+
+function campLabel(id) { return CAMPS.find(c => c.id === id)?.label || 'Other'; }
+function campCls(id)   { return CAMPS.find(c => c.id === id)?.cls   || 'b-other'; }
+
+function renderAll() {
+  document.getElementById('date-chip').textContent = todayStr();
+  renderStats();
+  renderFilter();
+  renderBoard();
+}
+
+function renderStats() {
+  const pt = postedToday();
+  const canPost = Math.max(0, DAILY_TARGET - pt);
+  const total = state.cards.length;
+  const pct = Math.min(100, Math.round((pt / DAILY_TARGET) * 100));
+
+  document.getElementById('pace-fill').style.width = pct + '%';
+  document.getElementById('pace-pct').textContent = pct + '%';
+
+  const defs = [
+    { label: 'Total influencers', val: total,              sub: 'in pipeline',         accent: '#7c6ff7' },
+    { label: 'Can post today',    val: canPost,             sub: `of ${DAILY_TARGET} target`, accent: '#22d3a5' },
+    { label: 'Posted today',      val: pt,                 sub: `target ${DAILY_TARGET}`,   accent: '#f7a24e' },
+    { label: 'Onboarded',         val: stageCount('onboarded'), sub: 'ready',          accent: '#7c6ff7' },
+    { label: 'Scripting',         val: stageCount('scripting'), sub: 'in progress',    accent: '#22d3a5' },
+    { label: 'Total posted',      val: stageCount('posted'),    sub: 'all time',       accent: '#f7a24e' },
+  ];
+  document.getElementById('stats-grid').innerHTML = defs.map(d => `
+    <div class="stat" style="--accent:${d.accent}">
+      <div class="stat-label">${d.label}</div>
+      <div class="stat-value">${d.val}</div>
+      <div class="stat-sub">${d.sub}</div>
+    </div>
+  `).join('');
+}
+
+function renderFilter() {
+  const opts = [{ id: 'all', label: 'All', cls: '' }, ...CAMPS.map(c => ({ id: c.id, label: c.label, cls: 'f-' + c.id.replace('_camp', '').replace('_', '') }))];
+  document.getElementById('filter-row').innerHTML = opts.map(o => {
+    const cnt = o.id === 'all' ? state.cards.length : campCount(o.id);
+    return `<button class="filt ${o.cls}${state.filter === o.id ? ' active' : ''}" onclick="setFilter('${o.id}')">${o.label} <span style="opacity:.6;font-size:10px">${cnt}</span></button>`;
+  }).join('');
+}
+
+function setFilter(id) { state.filter = id; renderAll(); }
+window.setFilter = setFilter;
+
+function visibleCards(stage) {
+  return state.cards.filter(c => c.stage === stage && (state.filter === 'all' || c.camp === state.filter));
+}
+
+function renderBoard() {
+  document.getElementById('board').innerHTML = STAGES.map(s => {
+    const cards = visibleCards(s.id);
+    return `
+    <div class="col" style="--col-color:${s.color};--col-glow:${s.glow}">
+      <div class="col-glow"></div>
+      <div class="col-head">
+        <div class="col-title-row">
+          <div class="col-name"><span class="col-dot"></span>${s.label}</div>
+          <div class="col-badge">${cards.length}</div>
+        </div>
+        <div class="col-desc">${s.desc}</div>
+      </div>
+      <div class="drop-zone" id="zone-${s.id}"
+        ondragover="onDragOver(event,'${s.id}')"
+        ondragleave="onDragLeave(event,'${s.id}')"
+        ondrop="onDrop(event,'${s.id}')">
+        ${cards.length === 0 ? '<div class="empty-hint">Drop influencers here</div>' : ''}
+        ${cards.map(c => cardHTML(c)).join('')}
+      </div>
+      <div class="add-area" style="--col-color:${s.color}">
+        <input class="add-input" id="inp-${s.id}" placeholder="Name…"
+          onkeydown="if(event.key==='Enter')openModal('${s.id}')">
+        <button class="add-btn" onclick="openModal('${s.id}')">+</button>
+      </div>
+    </div>`;
+  }).join('');
+  attachDrag();
+}
+
+function cardHTML(c) {
+  return `<div class="card" id="card-${c.id}" draggable="true" data-id="${c.id}" style="--camp-color:${CAMPS.find(x=>x.id===c.camp)?.color||'#555'}">
+    <button class="card-del" onclick="deleteCard(${c.id},event)" title="Remove">×</button>
+    <div class="card-name">${escHtml(c.name)}</div>
+    <div class="card-meta">
+      <span class="badge ${campCls(c.camp)}" onclick="openEdit(${c.id})">${campLabel(c.camp)}</span>
+      <span class="card-ts">${fmtTs(c.stageTs)}</span>
+    </div>
+  </div>`;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function attachDrag() {
+  document.querySelectorAll('.card').forEach(el => {
+    el.addEventListener('dragstart', e => {
+      state.dragId = parseInt(el.dataset.id);
+      el.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    el.addEventListener('dragend', () => {
+      el.classList.remove('dragging');
+      document.querySelectorAll('.drop-zone').forEach(z => z.classList.remove('drag-over'));
+    });
+  });
+}
+
+function onDragOver(e, stage)  { e.preventDefault(); document.getElementById('zone-' + stage).classList.add('drag-over'); }
+function onDragLeave(e, stage) { document.getElementById('zone-' + stage).classList.remove('drag-over'); }
+function onDrop(e, stage) {
+  e.preventDefault();
+  document.getElementById('zone-' + stage).classList.remove('drag-over');
+  if (state.dragId == null) return;
+  const c = state.cards.find(x => x.id === state.dragId);
+  if (c && c.stage !== stage) {
+    c.stage = stage;
+    c.stageTs = Date.now();
+    save();
+    toast(`Moved to ${STAGES.find(s=>s.id===stage)?.label}`);
+  }
+  state.dragId = null;
+  renderAll();
+}
+window.onDragOver = onDragOver;
+window.onDragLeave = onDragLeave;
+window.onDrop = onDrop;
+
+function deleteCard(id, e) {
+  e.stopPropagation(); e.preventDefault();
+  state.cards = state.cards.filter(c => c.id !== id);
+  save(); renderAll();
+}
+window.deleteCard = deleteCard;
+
+/* ── Modal ── */
+let pendingModal = null;
+
+function openModal(stage) {
+  const inp = document.getElementById('inp-' + stage);
+  const nameVal = inp ? inp.value.trim() : '';
+  pendingModal = { stage, existingId: null, initCamp: 'ai_camp' };
+  showModal('Add influencer', nameVal, 'ai_camp');
+}
+window.openModal = openModal;
+
+function openEdit(id) {
+  const c = state.cards.find(x => x.id === id);
+  if (!c) return;
+  pendingModal = { stage: c.stage, existingId: id, initCamp: c.camp };
+  showModal('Edit', c.name, c.camp);
+}
+window.openEdit = openEdit;
+
+function showModal(title, nameVal, campVal) {
+  document.getElementById('modal-root').innerHTML = `
+  <div class="modal-overlay" id="m-overlay" onclick="closeModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-title">${title}</div>
+      <div class="modal-field">
+        <label class="modal-label">Influencer name</label>
+        <input type="text" id="m-name" value="${escHtml(nameVal)}" placeholder="Enter full name…" autocomplete="off">
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Campaign</label>
+        <div class="camp-options">
+          ${CAMPS.map(cp => `<button class="camp-opt${campVal===cp.id?' selected-'+cp.id:''}" id="copt-${cp.id}" onclick="selectCamp('${cp.id}')">${cp.label}</button>`).join('')}
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+        <button class="btn-confirm" onclick="confirmModal()">Save</button>
+      </div>
+    </div>
+  </div>`;
+  pendingModal.camp = campVal;
+  setTimeout(() => { const el = document.getElementById('m-name'); if (el) { el.focus(); el.select(); } }, 60);
+}
+
+function selectCamp(id) {
+  pendingModal.camp = id;
+  CAMPS.forEach(cp => {
+    const el = document.getElementById('copt-' + cp.id);
+    if (el) { el.className = 'camp-opt' + (cp.id === id ? ' selected-' + cp.id : ''); }
+  });
+}
+window.selectCamp = selectCamp;
+
+function closeModal(e) {
+  if (e && e.target !== document.getElementById('m-overlay')) return;
+  document.getElementById('modal-root').innerHTML = '';
+  pendingModal = null;
+}
+window.closeModal = closeModal;
+
+function confirmModal() {
+  const name = document.getElementById('m-name')?.value.trim();
+  if (!name) { document.getElementById('m-name')?.focus(); return; }
+  const camp = pendingModal.camp || 'ai_camp';
+  if (pendingModal.existingId) {
+    const c = state.cards.find(x => x.id === pendingModal.existingId);
+    if (c) { c.name = name; c.camp = camp; }
+  } else {
+    state.cards.push({ id: state.nextId++, name, stage: pendingModal.stage, camp, stageTs: Date.now() });
+    const inp = document.getElementById('inp-' + pendingModal.stage);
+    if (inp) inp.value = '';
+  }
+  save();
+  document.getElementById('modal-root').innerHTML = '';
+  pendingModal = null;
+  renderAll();
+  toast('Saved ✓');
+}
+window.confirmModal = confirmModal;
+
+/* ── Toast ── */
+let toastTimer = null;
+function toast(msg) {
+  clearTimeout(toastTimer);
+  document.getElementById('toast-root').innerHTML = `<div class="toast"><span class="toast-dot"></span>${msg}</div>`;
+  toastTimer = setTimeout(() => { document.getElementById('toast-root').innerHTML = ''; }, 2200);
+}
+
+renderAll();
+</script>
+</body>
+</html>
